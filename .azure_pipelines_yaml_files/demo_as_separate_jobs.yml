@@ -1,0 +1,47 @@
+name: 'This should only detect "cruft" under certain circumstances.  It should not with a simple built-in "ubuntu-latest."'
+
+trigger: none
+
+parameters:
+  - name: "agentPool"
+    displayName: "ADO agent pool to test against" # e.g. "ubuntu-latest" or a real named one
+    type: "string"
+    default: "ubuntu-latest"
+
+stages:
+  - stage: "leave_cruft_stage"
+    displayName: "Leave cruft (stage)"
+    jobs:
+      - job: "leave_cruft_job"
+        displayName: "Leave cruft (job)"
+        pool:
+          ${{ if in(parameters.agentPool, 'ubuntu-latest', 'ubuntu-22.04', 'windows-latest', 'windows-2022', 'macos-latest') }}:
+            vmImage: ${{ parameters.agentPool }}
+          ${{ else }}:
+            name: ${{ parameters.agentPool }}
+        steps:
+          - template: "templates/010_leave_some_cruft.yml"
+  - stage: "detect_cruft_stage"
+    displayName: "Detect cruft (stage)"
+    jobs:
+      - job: "detect_cruft_job"
+        displayName: "Detect cruft (job)"
+        pool:
+          ${{ if in(parameters.agentPool, 'ubuntu-latest', 'ubuntu-22.04', 'windows-latest', 'windows-2022', 'macos-latest') }}:
+            vmImage: ${{ parameters.agentPool }}
+          ${{ else }}:
+            name: ${{ parameters.agentPool }}
+        steps:
+          - template: "templates/020_detect_if_cruft.yml"
+  - stage: "cleanup_cruft_stage"
+    displayName: "Clean up cruft (stage)"
+    jobs:
+      - job: "cleanup_cruft_job"
+        displayName: "Clean up cruft (job)"
+        pool:
+          ${{ if in(parameters.agentPool, 'ubuntu-latest', 'ubuntu-22.04', 'windows-latest', 'windows-2022', 'macos-latest') }}:
+            vmImage: ${{ parameters.agentPool }}
+          ${{ else }}:
+            name: ${{ parameters.agentPool }}
+        steps:
+          - template: "templates/030_cleanup_any_cruft.yml"

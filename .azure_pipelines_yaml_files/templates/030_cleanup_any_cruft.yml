@@ -1,0 +1,161 @@
+steps:
+  - task: "PowerShell@2"
+    name: "c_detl"
+    displayName: "Show details about currently running Azure Pipelines agent"
+    inputs:
+      targetType: "inline"
+      script: |
+        Write-Host "##[section]Agent identity"
+        Write-Host "ComputerName : $env:COMPUTERNAME"
+        Write-Host "AgentName    : $env:AGENT_NAME"
+        Write-Host "AgentId      : $env:AGENT_ID"
+        Write-Host "BuildId      : $(Build.BuildId)"
+        Write-Host "Timestamp    : $(Get-Date -Format 'o')"
+
+  - task: "PowerShell@2"
+    name: "c_v01_user_file"
+    displayName: "Vector 1:  Clean up any cruft file in user's home dir"
+    inputs:
+      targetType: "inline"
+      script: |
+        $dir = Join-Path $HOME '.ado-cruft-test'
+        if (Test-Path $dir) {
+          Remove-Item -Recurse -Force -Path $dir
+          Write-Host "Removed: $dir"
+        } else {
+          Write-Host "Already clean: $dir"
+        }
+
+  - task: "PowerShell@2"
+    name: "c_v02_user_env"
+    displayName: "Vector 2:  Clean up any cruft user-scope environment variable (HKCU on Windows; PS profile on Linux)"
+    inputs:
+      targetType: "inline"
+      script: |
+        if ($IsWindows) {
+          [System.Environment]::SetEnvironmentVariable('ADO_CRUFT_TEST', $null, 'User')
+          Write-Host "Cleared ADO_CRUFT_TEST from HKCU registry"
+        } else {
+          if (Test-Path $PROFILE) {
+            $lines = Get-Content $PROFILE | Where-Object { $_ -notlike '*ado-cruft-test*' }
+            Set-Content -Path $PROFILE -Value $lines -Force
+            Write-Host "Removed ado-cruft-test lines from $PROFILE"
+          } else {
+            Write-Host "Already clean: $PROFILE — not present"
+          }
+        }
+
+  - task: "PowerShell@2"
+    name: "c_v03_machine_env"
+    displayName: "Vector 3:  Clean up any cruft machine-scope environment variable, if adequately privileged (HKLM on Windows; /etc/environment on Linux)"
+    continueOnError: true # Fail gracefully if we don't have adequate privileges
+    inputs:
+      targetType: "inline"
+      script: |
+        if ($IsWindows) {
+          [System.Environment]::SetEnvironmentVariable('ADO_CRUFT_TEST_MACHINE', $null, 'Machine')
+          Write-Host "Cleared ADO_CRUFT_TEST_MACHINE from HKLM registry"
+        } else {
+          if (Test-Path '/etc/environment') {
+            $lines = Get-Content '/etc/environment' | Where-Object { $_ -notlike 'ADO_CRUFT_TEST_MACHINE=*' }
+            Set-Content -Path '/etc/environment' -Value $lines -Force
+            Write-Host "Removed ADO_CRUFT_TEST_MACHINE from /etc/environment"
+          } else {
+            Write-Host "Already clean: /etc/environment — not present"
+          }
+        }
+
+  - task: "PowerShell@2"
+    name: "c_v04_user_config_file"
+    displayName: "Vector 4:  Clean up any cruft file in the user config dir (APPDATA on Windows; ~/.config on Linux)"
+    inputs:
+      targetType: "inline"
+      script: |
+        $configDir = if ($IsWindows) { $env:APPDATA } else { Join-Path $HOME '.config' }
+        $file      = Join-Path $configDir 'ado-cruft-test-marker.txt'
+        if (Test-Path $file) {
+          Remove-Item -Force -Path $file
+          Write-Host "Removed: $file"
+        } else {
+          Write-Host "Already clean: $file"
+        }
+
+  - task: "PowerShell@2"
+    name: "c_v05_npmrc_user_config"
+    displayName: "Vector 5:  Clean up any cruft entry in a NodeJS NPM user config (.npmrc file)"
+    continueOnError: true # Fail gracefully if NPM isn't installed
+    inputs:
+      targetType: "inline"
+      script: |
+        npm config delete ado-cruft-test-marker --location user
+        Write-Host "Deleted npm user config key: ado-cruft-test-marker"
+
+  - task: "PowerShell@2"
+    name: "c_v06_git_global_config"
+    displayName: "Vector 6:  Clean up any cruft entry in the '--global' git config (~/.gitconfig)"
+    continueOnError: true # Fail gracefully if Git isn't installed
+    inputs:
+      targetType: "inline"
+      script: |
+        git config --global --remove-section ado-cruft-test 2>$null
+        Write-Host "Removed git global config section: ado-cruft-test"
+
+  - task: "PowerShell@2"
+    name: "c_v07_user_path_env_entry"
+    displayName: "Vector 7:  Clean up any cruft entry in the user PATH environment variable"
+    inputs:
+      targetType: "inline"
+      script: |
+        $pathSep = [System.IO.Path]::PathSeparator
+        $marker  = if ($IsWindows) { 'C:\ado-cruft-test-path-marker' } `
+                   else            { '/tmp/ado-cruft-test-path-marker' }
+        if ($IsWindows) {
+          $userPath = [System.Environment]::GetEnvironmentVariable('PATH', 'User')
+          if ($userPath -like "*$marker*") {
+            $cleaned = ($userPath -split [regex]::Escape($pathSep) | Where-Object { $_ -ne $marker }) -join $pathSep
+            [System.Environment]::SetEnvironmentVariable('PATH', $cleaned, 'User')
+            Write-Host "Removed '$marker' from User PATH (HKCU registry)"
+          } else {
+            Write-Host "Already clean: PATH marker not in User PATH (HKCU)"
+          }
+        } else {
+          $profileFile = Join-Path $HOME '.profile'
+          if (Test-Path $profileFile) {
+            $lines = Get-Content $profileFile | Where-Object { $_ -notlike "*$marker*" }
+            Set-Content -Path $profileFile -Value $lines -Force
+            Write-Host "Removed PATH marker lines from ~/.profile"
+          } else {
+            Write-Host "Already clean: ~/.profile — not present"
+          }
+        }
+
+  - task: "PowerShell@2"
+    name: "c_v08_nuget_tooling_dir"
+    displayName: "Vector 8:  Clean up any cruft file in the NuGet tooling directory"
+    continueOnError: true # Fail gracefully if .NET isn't installed
+    inputs:
+      targetType: "inline"
+      script: |
+        $nugetDir = if ($IsWindows) { Join-Path $env:APPDATA 'NuGet' } `
+                    else            { Join-Path $HOME '.nuget' }
+        $file     = Join-Path $nugetDir 'ado-cruft-test-marker.txt'
+        if (Test-Path $file) {
+          Remove-Item -Force -Path $file
+          Write-Host "Removed: $file"
+        } else {
+          Write-Host "Already clean: $file"
+        }
+
+  - task: "PowerShell@2"
+    name: "c_summarize"
+    displayName: "Summarize"
+    inputs:
+      targetType: "inline"
+      script: |
+        Write-Host "##[section]Cruft cleanup complete on $env:COMPUTERNAME (build $(Build.BuildId))"
+        Write-Host ""
+        Write-Host "This template cleaned $env:COMPUTERNAME only."
+        Write-Host "If the pool has multiple warm VMs, re-run the parent pipeline until each"
+        Write-Host "known VM hostname has appeared in the agent identity step above."
+        Write-Host ""
+        Write-Host "After cleaning, run 020_detect_if_cruft.yml to confirm all vectors are CLEAN."

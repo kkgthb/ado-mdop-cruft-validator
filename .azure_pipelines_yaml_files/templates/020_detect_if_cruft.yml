@@ -1,0 +1,207 @@
+steps:
+  - task: "PowerShell@2"
+    name: "d_detl"
+    displayName: "Show details about currently running Azure Pipelines agent"
+    inputs:
+      targetType: "inline"
+      script: |
+        Write-Host "##[section]Agent identity"
+        Write-Host "ComputerName : $env:COMPUTERNAME"
+        Write-Host "AgentName    : $env:AGENT_NAME"
+        Write-Host "AgentId      : $env:AGENT_ID"
+        Write-Host "BuildId      : $(Build.BuildId)"
+        Write-Host "Pipeline     : $(Build.DefinitionName)"
+        Write-Host "Timestamp    : $(Get-Date -Format 'o')"
+
+  - task: "PowerShell@2"
+    name: "d_v01_user_file"
+    displayName: "Vector 1:  Detect any cruft file in user's home dir"
+    inputs:
+      targetType: "inline"
+      script: |
+        $file = Join-Path (Join-Path $HOME '.ado-cruft-test') 'cruft.json'
+        if (Test-Path $file) {
+          $content = Get-Content $file -Raw
+          Write-Host "##vso[task.logissue type=warning]FOUND: cruft file at $file"
+          Write-Host $content
+        } else {
+          Write-Host "CLEAN: $file — not present"
+        }
+
+  - task: "PowerShell@2"
+    name: "d_v02_user_env"
+    displayName: "Vector 2:  Detect any cruft user-scope environment variable (HKCU on Windows; PS profile on Linux)"
+    inputs:
+      targetType: "inline"
+      script: |
+        if ($IsWindows) {
+          $val = [System.Environment]::GetEnvironmentVariable('ADO_CRUFT_TEST', 'User')
+          if ($val) {
+            Write-Host "##vso[task.logissue type=warning]FOUND: ADO_CRUFT_TEST in HKCU registry = '$val'"
+          } else {
+            Write-Host "CLEAN: ADO_CRUFT_TEST (HKCU registry) — not set"
+          }
+        } else {
+          # contaminate left behind a line in $PROFILE, which is sourced at the start of every new
+          # pwsh session, so the env var will already be set in this process if cruft was left behind.
+          if ($env:ADO_CRUFT_TEST) {
+            Write-Host "##vso[task.logissue type=warning]FOUND: ADO_CRUFT_TEST set via PowerShell profile = '$env:ADO_CRUFT_TEST'"
+          } else {
+            Write-Host "CLEAN: ADO_CRUFT_TEST — not set via PowerShell profile"
+          }
+          # Also inspect the profile file directly.
+          if (Test-Path $PROFILE) {
+            if ((Get-Content $PROFILE -Raw) -like '*ado-cruft-test*') {
+              Write-Host "##vso[task.logissue type=warning]FOUND: ado-cruft-test marker present in $PROFILE"
+            } else {
+              Write-Host "CLEAN: $PROFILE exists but has no cruft marker"
+            }
+          } else {
+            Write-Host "CLEAN: $PROFILE — not present"
+          }
+        }
+
+  - task: "PowerShell@2"
+    name: "d_v03_machine_env"
+    displayName: "Vector 3:  Detect any cruft machine-scope environment variable (HKLM on Windows; /etc/environment on Linux)"
+    inputs:
+      targetType: "inline"
+      script: |
+        if ($IsWindows) {
+          $val = [System.Environment]::GetEnvironmentVariable('ADO_CRUFT_TEST_MACHINE', 'Machine')
+          if ($val) {
+            Write-Host "##vso[task.logissue type=warning]FOUND: ADO_CRUFT_TEST_MACHINE in HKLM registry = '$val'"
+          } else {
+            Write-Host "CLEAN: ADO_CRUFT_TEST_MACHINE (HKLM registry) — not set"
+          }
+        } else {
+          if (Test-Path '/etc/environment') {
+            $match = Get-Content '/etc/environment' | Where-Object { $_ -like 'ADO_CRUFT_TEST_MACHINE=*' }
+            if ($match) {
+              Write-Host "##vso[task.logissue type=warning]FOUND: '$match' in /etc/environment"
+            } else {
+              Write-Host "CLEAN: ADO_CRUFT_TEST_MACHINE not found in /etc/environment"
+            }
+          } else {
+            Write-Host "CLEAN: /etc/environment — not present"
+          }
+          # Also check process environment (in case /etc/environment was sourced at agent startup).
+          if ($env:ADO_CRUFT_TEST_MACHINE) {
+            Write-Host "##vso[task.logissue type=warning]FOUND: ADO_CRUFT_TEST_MACHINE in process environment = '$env:ADO_CRUFT_TEST_MACHINE'"
+          }
+        }
+
+  - task: "PowerShell@2"
+    name: "d_v04_user_config_file"
+    displayName: "Vector 4:  Detect any cruft file in the user config dir (APPDATA on Windows; ~/.config on Linux)"
+    inputs:
+      targetType: "inline"
+      script: |
+        $configDir = if ($IsWindows) { $env:APPDATA } else { Join-Path $HOME '.config' }
+        $file      = Join-Path $configDir 'ado-cruft-test-marker.txt'
+        if (Test-Path $file) {
+          $content = Get-Content $file -Raw
+          Write-Host "##vso[task.logissue type=warning]FOUND: config dir marker at $file = '$($content.Trim())'"
+        } else {
+          Write-Host "CLEAN: $file — not present"
+        }
+
+  - task: "PowerShell@2"
+    name: "d_v05_npmrc_user_config"
+    displayName: "Vector 5:  Detect any cruft entry in a NodeJS NPM user config (.npmrc file)"
+    continueOnError: true # Fail gracefully if NPM isn't installed
+    inputs:
+      targetType: "inline"
+      script: |
+        $val = npm config get ado-cruft-test-marker --location user 2>$null
+        if ($val -and $val -ne 'undefined') {
+          Write-Host "##vso[task.logissue type=warning]FOUND: npm user config ado-cruft-test-marker = '$val'"
+        } else {
+          Write-Host "CLEAN: npm user config ado-cruft-test-marker — not set"
+        }
+
+  - task: "PowerShell@2"
+    name: "d_v06_git_global_config"
+    displayName: "Vector 6:  Detect any cruft entry in the '--global' git config (~/.gitconfig)"
+    continueOnError: true # Fail gracefully if Git isn't installed
+    inputs:
+      targetType: "inline"
+      script: |
+        $val = git config --global ado-cruft-test.marker 2>$null
+        if ($val) {
+          Write-Host "##vso[task.logissue type=warning]FOUND: git global config ado-cruft-test.marker = '$val'"
+        } else {
+          Write-Host "CLEAN: git global config ado-cruft-test.marker — not set"
+        }
+
+  - task: "PowerShell@2"
+    name: "d_v07_user_path_env_entry"
+    displayName: "Vector 7:  Detect any cruft entry in the user PATH environment variable"
+    inputs:
+      targetType: "inline"
+      script: |
+        $marker = if ($IsWindows) { 'C:\ado-cruft-test-path-marker' } `
+                  else            { '/tmp/ado-cruft-test-path-marker' }
+        if ($IsWindows) {
+          $userPath    = [System.Environment]::GetEnvironmentVariable('PATH', 'User')
+          $machinePath = [System.Environment]::GetEnvironmentVariable('PATH', 'Machine')
+          if ($userPath -like "*$marker*") {
+            Write-Host "##vso[task.logissue type=warning]FOUND: PATH marker '$marker' in User PATH (HKCU)"
+          } else {
+            Write-Host "CLEAN: PATH marker not in User PATH (HKCU)"
+          }
+          if ($machinePath -like "*$marker*") {
+            Write-Host "##vso[task.logissue type=warning]FOUND: PATH marker '$marker' in Machine PATH (HKLM)"
+          } else {
+            Write-Host "CLEAN: PATH marker not in Machine PATH (HKLM)"
+          }
+        } else {
+          $profileFile = Join-Path $HOME '.profile'
+          if (Test-Path $profileFile) {
+            if ((Get-Content $profileFile -Raw) -like "*$marker*") {
+              Write-Host "##vso[task.logissue type=warning]FOUND: PATH marker '$marker' declared in ~/.profile"
+            } else {
+              Write-Host "CLEAN: PATH marker not in ~/.profile"
+            }
+          } else {
+            Write-Host "CLEAN: ~/.profile — not present"
+          }
+          # Also check process PATH (in case ~/.profile was sourced at agent startup).
+          if ($env:PATH -like "*$marker*") {
+            Write-Host "##vso[task.logissue type=warning]FOUND: PATH marker '$marker' in current process PATH"
+          } else {
+            Write-Host "CLEAN: PATH marker not in current process PATH"
+          }
+        }
+
+  - task: "PowerShell@2"
+    name: "d_v08_nuget_tooling_dir"
+    displayName: "Vector 8:  Detect any cruft file in the NuGet tooling directory"
+    continueOnError: true # Fail gracefully if .NET isn't installed
+    inputs:
+      targetType: "inline"
+      script: |
+        $nugetDir = if ($IsWindows) { Join-Path $env:APPDATA 'NuGet' } `
+                    else            { Join-Path $HOME '.nuget' }
+        $file     = Join-Path $nugetDir 'ado-cruft-test-marker.txt'
+        if (Test-Path $file) {
+          $content = Get-Content $file -Raw
+          Write-Host "##vso[task.logissue type=warning]FOUND: NuGet dir marker at $file = '$($content.Trim())'"
+        } else {
+          Write-Host "CLEAN: $file — not present"
+        }
+
+  - task: "PowerShell@2"
+    name: "d_summarize"
+    displayName: "Summarize"
+    inputs:
+      targetType: "inline"
+      script: |
+        Write-Host "##[section]Cruft detection complete on $env:COMPUTERNAME (build $(Build.BuildId))"
+        Write-Host ""
+        Write-Host "Scroll up and search for lines beginning with FOUND."
+        Write-Host ""
+        Write-Host "Cross-reference this run's ComputerName against the 010_leave_some_cruft.yml run's ComputerName:"
+        Write-Host "  Same hostname + FOUND results  → confirmed cross-run cruft left behind on this VM"
+        Write-Host "  Same hostname + all CLEAN      → VM was re-imaged between runs"
+        Write-Host "  Different hostname             → different VM; CLEAN results expected"

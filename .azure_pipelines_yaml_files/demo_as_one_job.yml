@@ -1,0 +1,25 @@
+name: 'This should always detect "cruft."'
+
+trigger: none
+
+parameters:
+  - name: "agentPool"
+    displayName: "ADO agent pool to test against" # e.g. "ubuntu-latest" or a real named one
+    type: "string"
+    default: "ubuntu-latest"
+
+stages:
+  - stage: "leave_detect_and_cleanup_megastage"
+    displayName: "All-in-one cruft (stage)"
+    pool:
+      ${{ if in(parameters.agentPool, 'ubuntu-latest', 'ubuntu-22.04', 'windows-latest', 'windows-2022', 'macos-latest') }}:
+        vmImage: ${{ parameters.agentPool }}
+      ${{ else }}:
+        name: ${{ parameters.agentPool }}
+    jobs:
+      - job: "leave_detect_and_cleanup_megajob"
+        displayName: "All-in-one cruft (job)"
+        steps:
+          - template: "templates/010_leave_some_cruft.yml"
+          - template: "templates/020_detect_if_cruft.yml"
+          - template: "templates/030_cleanup_any_cruft.yml"

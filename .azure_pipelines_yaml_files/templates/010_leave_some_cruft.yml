@@ -1,0 +1,178 @@
+steps:
+  - task: "PowerShell@2"
+    name: "l_detl"
+    displayName: "Show details about currently running Azure Pipelines agent"
+    inputs:
+      targetType: "inline"
+      script: |
+        Write-Host "##[section]Agent identity"
+        Write-Host "ComputerName : $env:COMPUTERNAME"
+        Write-Host "AgentName    : $env:AGENT_NAME"
+        Write-Host "AgentId      : $env:AGENT_ID"
+        Write-Host "BuildId      : $(Build.BuildId)"
+        Write-Host "Pipeline     : $(Build.DefinitionName)"
+        Write-Host "Timestamp    : $(Get-Date -Format 'o')"
+
+  - task: "PowerShell@2"
+    name: "l_v01_user_file"
+    displayName: "Vector 1:  Leave behind a file in user's home dir"
+    inputs:
+      targetType: "inline"
+      script: |
+        $dir  = Join-Path $HOME '.ado-cruft-test'
+        $file = Join-Path $dir  'cruft.json'
+        New-Item -ItemType Directory -Force -Path $dir | Out-Null
+        @{
+          source    = 'cruft.yml'
+          buildId   = '$(Build.BuildId)'
+          pipeline  = '$(Build.DefinitionName)'
+          agent     = $env:COMPUTERNAME
+          timestamp = (Get-Date -Format 'o')
+        } | ConvertTo-Json | Set-Content -Path $file -Force
+        Write-Host "Written: $file"
+        Get-Content $file
+
+  - task: "PowerShell@2"
+    name: "l_v02_user_env"
+    displayName: "Vector 2:  Leave behind a user-scope environment variable (HKCU on Windows; PS profile on Linux)'"
+    inputs:
+      targetType: "inline"
+      script: |
+        $val = "left-behind-by-run-$(Build.BuildId)"
+        if ($IsWindows) {
+          [System.Environment]::SetEnvironmentVariable('ADO_CRUFT_TEST', $val, 'User')
+          $readback = [System.Environment]::GetEnvironmentVariable('ADO_CRUFT_TEST', 'User')
+          Write-Host "Set ADO_CRUFT_TEST in HKCU registry = '$readback'"
+        } else {
+          $profileDir = Split-Path $PROFILE -Parent
+          New-Item -ItemType Directory -Force -Path $profileDir | Out-Null
+          $line = "`$env:ADO_CRUFT_TEST = '$val'  # ado-cruft-test"
+          if (Test-Path $PROFILE) {
+            if ((Get-Content $PROFILE -Raw) -notlike '*ado-cruft-test*') {
+              Add-Content -Path $PROFILE -Value $line
+            }
+          } else {
+            Set-Content -Path $PROFILE -Value $line -Force
+          }
+          Write-Host "Wrote ADO_CRUFT_TEST to PowerShell profile: $PROFILE"
+        }
+
+  - task: "PowerShell@2"
+    name: "l_v03_machine_env"
+    displayName: "Vector 3:  Leave behind a machine-scope environment variable, if adequately privileged (HKLM on Windows; /etc/environment on Linux)"
+    continueOnError: true # Fail gracefully if we don't have adequate privileges
+    inputs:
+      targetType: "inline"
+      script: |
+        $val = "left-behind-by-run-$(Build.BuildId)"
+        if ($IsWindows) {
+          [System.Environment]::SetEnvironmentVariable('ADO_CRUFT_TEST_MACHINE', $val, 'Machine')
+          $readback = [System.Environment]::GetEnvironmentVariable('ADO_CRUFT_TEST_MACHINE', 'Machine')
+          Write-Host "Set ADO_CRUFT_TEST_MACHINE in HKLM registry = '$readback'"
+        } else {
+          Add-Content -Path '/etc/environment' -Value "ADO_CRUFT_TEST_MACHINE=$val"
+          Write-Host "Appended ADO_CRUFT_TEST_MACHINE to /etc/environment"
+        }
+
+  - task: "PowerShell@2"
+    name: "l_v04_user_file"
+    displayName: "Vector 4:  Leave behind a file in the user config dir (APPDATA on Windows; ~/.config on Linux)"
+    inputs:
+      targetType: "inline"
+      script: |
+        $configDir = if ($IsWindows) { $env:APPDATA } else { Join-Path $HOME '.config' }
+        $file      = Join-Path $configDir 'ado-cruft-test-marker.txt'
+        New-Item -ItemType Directory -Force -Path $configDir | Out-Null
+        Set-Content -Path $file -Value "left-behind-by-run-$(Build.BuildId)" -Force
+        Write-Host "Written: $file"
+
+  - task: "PowerShell@2"
+    name: "l_v05_npmrc_user_config"
+    displayName: "Vector 5:  Leave behind an entry in a NodeJS NPM user config (.npmrc file)"
+    continueOnError: true # Fail gracefully if NPM isn't installed
+    inputs:
+      targetType: "inline"
+      script: |
+        # Note:  Writes a harmless labelled marker key; does NOT write real credentials or registry URLs.
+        npm config set ado-cruft-test-marker "left-behind-by-run-$(Build.BuildId)" --location user
+        Write-Host "npm user config ado-cruft-test-marker:"
+        npm config get ado-cruft-test-marker --location user
+
+  - task: "PowerShell@2"
+    name: "l_v06_git_global_config"
+    displayName: "Vector 6:  Leave behind an entry in the '--global' git config (~/.gitconfig)"
+    continueOnError: true # Fail gracefully if Git isn't installed
+    inputs:
+      targetType: "inline"
+      script: |
+        git config --global ado-cruft-test.marker "left-behind-by-run-$(Build.BuildId)"
+        Write-Host "git global ado-cruft-test.marker:"
+        git config --global ado-cruft-test.marker
+
+  - task: "PowerShell@2"
+    name: "l_v07_user_path_env_entry"
+    displayName: "Vector 7:  Leave behind an entry in the user PATH environment variable"
+    inputs:
+      targetType: "inline"
+      script: |
+        $pathSep = [System.IO.Path]::PathSeparator
+        $marker  = if ($IsWindows) { 'C:\ado-cruft-test-path-marker' } `
+                    else            { '/tmp/ado-cruft-test-path-marker' }
+        if ($IsWindows) {
+          $userPath = [System.Environment]::GetEnvironmentVariable('PATH', 'User')
+          if ($userPath -notlike "*$marker*") {
+            [System.Environment]::SetEnvironmentVariable('PATH', "$userPath$pathSep$marker", 'User')
+            Write-Host "Appended '$marker' to User PATH (HKCU registry)"
+          } else {
+            Write-Host "##vso[task.logissue type=warning]Marker already in User PATH (HKCU) — leftover from an earlier run!"
+          }
+        } else {
+          $profileFile = Join-Path $HOME '.profile'
+          $line        = "export PATH=`"`$PATH$pathSep$marker`"  # ado-cruft-test"
+          if (Test-Path $profileFile) {
+            if ((Get-Content $profileFile -Raw) -like "*$marker*") {
+              Write-Host "##vso[task.logissue type=warning]Marker already in ~/.profile PATH — leftover from an earlier run!"
+            } else {
+              Add-Content -Path $profileFile -Value $line
+              Write-Host "Appended PATH marker line to ~/.profile"
+            }
+          } else {
+            Set-Content -Path $profileFile -Value $line -Force
+            Write-Host "Created ~/.profile with PATH marker line"
+          }
+        }
+
+  - task: "PowerShell@2"
+    name: "l_v08_nuget_tooling_dir"
+    displayName: "Vector 8:  Leave behind a file in the NuGet tooling directory"
+    continueOnError: true # Fail gracefully if .NET isn't installed
+    inputs:
+      targetType: "inline"
+      script: |
+        $nugetDir = if ($IsWindows) { Join-Path $env:APPDATA 'NuGet' } `
+                    else            { Join-Path $HOME '.nuget' }
+        $file     = Join-Path $nugetDir 'ado-cruft-test-marker.txt'
+        New-Item -ItemType Directory -Force -Path $nugetDir | Out-Null
+        Set-Content -Path $file -Value "left-behind-by-run-$(Build.BuildId)" -Force
+        Write-Host "Written: $file"
+
+  - task: "PowerShell@2"
+    name: "l_summarize"
+    displayName: "Summarize"
+    inputs:
+      targetType: "inline"
+      script: |
+        Write-Host "##[section]Cruft leave-behind complete — build $(Build.BuildId) on $env:COMPUTERNAME"
+        Write-Host ""
+        Write-Host "Vectors written (subject to permission and tool availability above):"
+        Write-Host "  1. $env:USERPROFILE\.ado-cruft-test\cruft.json"
+        Write-Host "  2. ADO_CRUFT_TEST            (User env var)"
+        Write-Host "  3. ADO_CRUFT_TEST_MACHINE    (Machine env var — needs elevation)"
+        Write-Host "  4. $env:APPDATA\ado-cruft-test-marker.txt"
+        Write-Host "  5. npm user config: ado-cruft-test-marker"
+        Write-Host "  6. git global config: ado-cruft-test.marker"
+        Write-Host "  7. User PATH entry: C:\ado-cruft-test-path-marker"
+        Write-Host "  8. $env:APPDATA\NuGet\ado-cruft-test-marker.txt"
+        Write-Host ""
+        Write-Host "Now run detect.yml against the same pool."
+        Write-Host "If detect.yml runs on $env:COMPUTERNAME, FOUND results confirm cross-run cruft has been left behind."
