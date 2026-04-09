@@ -1,3 +1,6 @@
+# Thank you, LLMs, for the test suite based off my description of my concerns, 
+# and for the PowerShell code
+
 steps:
   - task: "PowerShell@2"
     name: "l_detl"
