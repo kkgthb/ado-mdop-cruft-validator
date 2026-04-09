@@ -24,6 +24,8 @@ This can help inform appropriate recommendation-making about mitigations such as
 
 ## Invocable YAML templates
 
+<!-- Thank you, LLMs -->
+
 | File | Purpose |
 |---|---|
 | [`010_leave_some_cruft.yml`](.azure_pipelines_yaml_files/templates/010_leave_some_cruft.yml) | Deliberately writes 8 types of cross-run artifacts to the agent |
@@ -31,6 +33,8 @@ This can help inform appropriate recommendation-making about mitigations such as
 | [`030_cleanup_any_cruft.yml`](.azure_pipelines_yaml_files/templates/030_cleanup_any_cruft.yml) | Removes all artifacts written by `010` |
 
 ## Use
+
+<!-- Thank you, LLMs -->
 
 Reference these as step templates from a parent pipeline, such as the demos here or one of your own.
 
