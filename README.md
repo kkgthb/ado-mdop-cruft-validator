@@ -56,5 +56,6 @@ Reference these as step templates from a parent pipeline, such as the demos here
 
 1. When testing `demo_as_separate_jobs.yml`, remember it's not very useful for demonstrating cross-contamination if the pool has more than 1 VM in it.  Don't wonder why it's not "failing" as expected if you work with a >1-size MDOP during demos.
 2. Validate that `030` actually works by running `020` after it.  You still haven't had a chance to do this on a real MDOP just yet.
+3. Okay, somehow, I seem to have completely missed out on the flag for `Stateful` instead of `Stateless` in MDOP `agentProfile`.  I guess I really need to get my hands on an MDOP sooner rather than later and try it myself.  That would solve a lot of problems.
 
 -Katie Kodes, 4/9/26
