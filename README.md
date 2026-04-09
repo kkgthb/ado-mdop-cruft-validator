@@ -49,7 +49,7 @@ Reference these as step templates from a parent pipeline, such as the demos here
 2. [`demo_as_separate_jobs.yml`](.azure_pipelines_yaml_files/demo_as_separate_jobs.yml) should:
     * always report "clean" in the "detection" steps if you're just running it with built-in straight-out-of-the-box [public Microsoft-hosted Azure Pipelines agent pools](https://learn.microsoft.com/en-us/azure/devops/pipelines/agents/agents#microsoft-hosted-agents) like `ubuntu-latest`, because those are always supposed to be ephemeral per job, and `demo_as_separate_jobs.yml` breaks up the template invocations into separate back-to-back jobs.
     * variably report "clean" vs. "WARNING" depending on what kind of "agent pool" you've got it running on.
-        If it's one subject to cross-contamination, in fact, skipping the "cleanup" stage on a first run and skippng "leave" stage on a 2nd run will likely show cruft in _both_ runs' "detect" stages, as long as the gap between two runs doesn't exceed your MDOP TTL.  😬
+        If it's one subject to cross-contamination, in fact, skipping the "cleanup" stage on a first run and skipping "leave" stage on a 2nd run will likely show cruft in _both_ runs' "detect" stages, as long as the gap between two runs doesn't exceed your MDOP TTL.  😬
         * Don't be afraid to try this yourself.  This is actually the point that you need to make to colleagues about MDOP TTL security vs. cost/performance tradeoffs, and this codebase is meant to help you prove your point.
 
 ## Author notes to self TODO
